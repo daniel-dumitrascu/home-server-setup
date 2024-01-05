@@ -6,11 +6,19 @@
   vars:
 
     data_ssd_uuid: "a06b4802-68cf-4f3d-a2ca-18091fc87c0f"
+    ssh_port: "4555"
+    
+    key_file_path: "home/daniel/.ssh/authorized_keys.pub" # TODO: can I change this to "~/.ssh/authorized_keys"? test it
+    #fstab_path: "/etc/fstab"
+    ssh_config_path: "/etc/ssh/sshd_config"
+    
+    fstab_path: "dummy/dummy_fstab"
+    #ssh_config_path: "dummy/dummy_ssh_config"
 
   tasks:
 
   - name: step 1 - update full system
-    shell: pacman -Syu
+    shell: pacman -Syu --noconfirm
     register: system_update_out
 
   - name: step 1 - output    
@@ -21,7 +29,7 @@
 
   - name: step 2 - check if the SSD UUID is already added to the fstab
     command:
-      cmd: "grep '{{ data_ssd_uuid }}' /etc/fstab"
+      cmd: "grep '{{ data_ssd_uuid }}' '{{ fstab_path }}'"
     register: result
     failed_when: result.rc != 0 and result.rc != 1
     check_mode: false
@@ -29,7 +37,7 @@
 
   - name: step 3 - add SSD UUID to fstab
     ansible.builtin.lineinfile:
-      path: dummy_fstab
+      path: "{{ fstab_path }}"
       line: "UUID={{ data_ssd_uuid }} /media/data ext4 defaults,errors=remount-ro 0 2"
     when: result.rc == 1 # UUID wasn't found
 
@@ -40,6 +48,7 @@
       name:
         - vim
         - fail2ban
+        - openssh
       state: latest
     register: packages_output
     when: ansible_distribution == "Archlinux"
@@ -47,3 +56,58 @@
   - name: step 4 - output   
     debug:
       var: packages_output
+
+########################################################
+
+  - name: step 5 - generate keys for ssh machine authentication
+    command: yes | ssh-keygen -t rsa -b 2048 -f ~/.ssh/authorized_keys -N ""
+    register: generate_keys_output
+    failed_when: generate_keys_output.rc != 0 and generate_keys_output.rc != 1
+
+  - name: step 5 - output   
+    debug:
+      var: generate_keys_output
+
+  - name: step 6 - change permissions on the .ssh folder
+    file:
+      path: ~/.ssh
+      state: directory
+      mode: "0755"
+
+  - name: step 7 - disable Root SSH login on the machine
+    lineinfile:
+      path: "{{ ssh_config_path }}"
+      regexp: '^#?PermitRootLogin'
+      line: 'PermitRootLogin no'
+
+  - name: step 8 - change the default ssh port (22)
+    lineinfile:
+      path: "{{ ssh_config_path }}"
+      regexp: '^#?Port'
+      line: "Port {{ ssh_port }}"
+
+  - name: step 9 - enable public key authentication
+    lineinfile:
+      path: "{{ ssh_config_path }}"
+      regexp: "{{ item.regexp }}"
+      line: "{{ item.line }}"
+    with_items:
+      - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+      - { regexp: '^AuthorizedKeysFile', line: 'AuthorizedKeysFile {{ key_file_path }}' }
+      - { regexp: '^#PasswordAuthentication', line: 'PasswordAuthentication no' }
+
+  - name: step 10 - start and enable the SSH service
+    service:
+      name: sshd
+      state: started
+    notify:
+      - enable_and_start_sshd
+
+########################################################
+
+  handlers:
+    - name: enable_and_start_sshd
+      service:
+        name: sshd
+        enabled: yes
+        state: started
