@@ -47,8 +47,9 @@
     package:
       name:
         - vim
-        - fail2ban
         - openssh
+        - fail2ban
+        - docker
       state: latest
     register: packages_output
     when: ansible_distribution == "Archlinux"
@@ -105,9 +106,57 @@
 
 ########################################################
 
+  - name: step 11 - check if fail2ban has a jail.local file
+    stat:
+      path: /etc/fail2ban/jail.local
+    register: fail2ban_jail_stat
+
+  - name: step 12 - create a jail.local for fail2ban
+    file:
+      path: /etc/fail2ban/jail.local
+      state: touch
+    when: not fail2ban_jail_stat.stat.exists
+    register: fail2ban_jail_creation
+
+  - name: step 13 - add default config to jail.local
+    template:
+      src: jail.local.template
+      dest: /etc/fail2ban/jail.local
+    when: fail2ban_jail_creation is defined and fail2ban_jail_creation.changed == true
+
+  - name: step 14 - start and enable the fail2ban service
+    service:
+      name: fail2ban
+      state: started
+    notify:
+      - enable_and_start_fail2ban
+
+########################################################
+
+  - name: step 15 - start and enable docker
+    service:
+      name: docker
+      state: started
+    notify:
+      - enable_and_start_docker
+
+########################################################
+
   handlers:
     - name: enable_and_start_sshd
       service:
         name: sshd
+        enabled: yes
+        state: started
+
+    - name: enable_and_start_fail2ban
+      service:
+        name: fail2ban
+        enabled: yes
+        state: started
+
+    - name: enable_and_start_docker
+      service:
+        name: docker
         enabled: yes
         state: started

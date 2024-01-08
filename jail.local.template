@@ -1,0 +1,13 @@
+[DEFAULT]
+# a space delimited list of IP addresses, CIDR prefixes, or DNS hostnames
+# to bypass fail2ban protection
+ignoreip = 127.0.0.1 172.31.0.0/24 10.10.0.0/24 192.168.0.0/24
+
+# number of seconds during which a client host is blocked
+bantime = 86400
+
+# number of failures before a client host is blocked
+maxretry = 5
+
+# number of seconds within which "maxentry" failures result in banning
+findtime = 600
