@@ -17,6 +17,8 @@
     fstab_path: "dummy/dummy_fstab"
     #ssh_config_path: "dummy/dummy_ssh_config"
     jellyfin_media_path: "/home/daniel/Desktop/jellyfin-media"
+    qbittorrent_download_path: "/home/daniel/Desktop/torrents"
+    homer_dashboard_file_path: "/home/daniel/Desktop/homer"
 
   tasks:
 
@@ -151,12 +153,12 @@
       source: pull
       tag: latest
 
-  - name: step 17 - create jellyfin config volume for jellyfin
+  - name: step 17 - create config volume for jellyfin
     docker_volume:
       name: jellyfin-config
       driver: local
 
-  - name: step 18 - create jellyfin cache volume for jellyfin
+  - name: step 18 - create cache volume for jellyfin
     docker_volume:
       name: jellyfin-cache
       driver: local
@@ -177,6 +179,96 @@
       user: "{{ user_id }}:{{ group_id }}"
       network_mode: host
       restart_policy: unless-stopped
+
+########################################################
+
+  - name: step 20 - pull qbittorrent docker image
+    docker_image:
+      name: linuxserver/qbittorrent
+      source: pull
+      tag: latest
+
+  - name: step 21 - create config volume for qbittorrent
+    docker_volume:
+      name: qbittorrent-config
+      driver: local
+
+  - name: step 22 - start qbittorrent docker container
+    docker_container:
+      name: qbittorrent
+      image: linuxserver/qbittorrent
+      state: started
+      detach: true
+      restart_policy: always
+      env:
+        PUID: "1000"
+        PGID: "1000"
+        TZ: "Europe/London"
+        UMASK_SET: "022"
+        WEBUI_PORT: "8080"
+      ports:
+        - "6881:6881"
+        - "6881:6881/udp"
+        - "8080:8080"
+        - "45666:45666"
+      volumes:
+        - qbittorrent-config:/config
+        - "{{ qbittorrent_download_path }}:/downloads"
+
+########################################################
+
+  - name: step 23 - pull homer docker image
+    docker_image:
+      name: b4bz/homer
+      source: pull
+      tag: latest
+
+  - name: step 24 - start homer docker container
+    docker_container:
+      name: homer
+      image: b4bz/homer
+      state: started
+      detach: true
+      restart_policy: always
+      ports:
+        - "8081:8080"
+      volumes:
+        - "{{ homer_dashboard_file_path }}:/www/assets"
+
+########################################################
+
+  - name: step 25 - download OpenVPN configurations from surfshark
+    get_url:
+      url: "https://my.surfshark.com/vpn/api/v1/server/configurations"
+      dest: "/etc/openvpn/client"
+
+  - name: step 26 - create dir for surfshark configurations
+    file:
+      path: "/etc/openvpn/client/configurations"
+      state: directory
+
+  - name: step 27 - unzip the surfshark configurations archive
+    unarchive:
+      src: "/etc/openvpn/client/Surfshark_Config.zip"
+      dest: "/etc/openvpn/client/configurations"
+
+  - name: step 28 - create the login.conf file for surfshark
+    template:
+      src: login.conf
+      dest: /etc/openvpn/client/login.conf
+
+  - name: step 29 - get all surfshark configurations
+    find:
+      paths: "/etc/openvpn/client/configurations"
+      recurse: yes
+      patterns: '*'
+    register: found_files
+
+  - name: step 30 - decorate surfshark configurations
+    lineinfile:
+      path: "{{ item.path }}"
+      line: "auth-user-pass /etc/openvpn/client/login.conf"
+    with_items: "{{ found_files.files }}"
 
 ########################################################
 
