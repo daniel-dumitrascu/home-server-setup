@@ -41,7 +41,7 @@
     changed_when: false
 
   - name: step 3 - add SSD UUID to fstab
-    ansible.builtin.lineinfile:
+    lineinfile:
       path: "{{ fstab_path }}"
       line: "UUID={{ data_ssd_uuid }} /media/data ext4 defaults,errors=remount-ro 0 2"
     when: result.rc == 1 # UUID wasn't found
@@ -54,6 +54,7 @@
         - vim
         - openssh
         - fail2ban
+        - python
         - docker
       state: latest
     register: packages_output
@@ -267,8 +268,15 @@
   - name: step 30 - decorate surfshark configurations
     lineinfile:
       path: "{{ item.path }}"
+      regexp: '^auth-user-pass'
       line: "auth-user-pass /etc/openvpn/client/login.conf"
     with_items: "{{ found_files.files }}"
+
+  - name: step 31 - download vpn ignition script
+    get_url:
+      url: "https://raw.githubusercontent.com/daniel-dumitrascu/vpn-ignition-script/main/surfshark-startvpn.py"
+      dest: /usr/local/bin/surfshark-startvpn.py
+    register: result
 
 ########################################################
 
