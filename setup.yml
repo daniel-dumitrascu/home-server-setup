@@ -5,34 +5,38 @@
 
   vars:
 
+    linux_distribution: "Archlinux"
     data_ssd_uuid: "a06b4802-68cf-4f3d-a2ca-18091fc87c0f"
     ssh_port: "4555"
     user_id: 1000
     group_id: 1001
+    system_password: "password"
     
-    key_file_path: "home/daniel/.ssh/authorized_keys.pub" # TODO: can I change this to "~/.ssh/authorized_keys"? test it
+    key_file_path: "home/daniel/.ssh/authorized_keys.pub"
+    
     #fstab_path: "/etc/fstab"
-    ssh_config_path: "/etc/ssh/sshd_config"
-    
     fstab_path: "dummy/dummy_fstab"
-    #ssh_config_path: "dummy/dummy_ssh_config"
+
+    ssh_config_path: "/etc/ssh/sshd_config"
     jellyfin_media_path: "/home/daniel/Desktop/jellyfin-media"
     qbittorrent_download_path: "/home/daniel/Desktop/torrents"
     homer_dashboard_file_path: "/home/daniel/Desktop/homer"
+    vpn_configs_path: "/etc/openvpn/client/configurations"
+    vpn_selected_config: "config"
 
   tasks:
 
-  - name: step 1 - update full system
+  - name: System update - update full system
     shell: pacman -Syu --noconfirm
     register: system_update_out
 
-  - name: step 1 - output    
+  - name: System update - output    
     debug:  
       var: system_update_out
 
 ########################################################
 
-  - name: step 2 - check if the SSD UUID is already added to the fstab
+  - name: Setup fstab - check if the SSD UUID is already added to the fstab
     command:
       cmd: "grep '{{ data_ssd_uuid }}' '{{ fstab_path }}'"
     register: result
@@ -40,15 +44,38 @@
     check_mode: false
     changed_when: false
 
-  - name: step 3 - add SSD UUID to fstab
+  - name: Setup fstab - add SSD UUID to fstab
     lineinfile:
       path: "{{ fstab_path }}"
-      line: "UUID={{ data_ssd_uuid }} /media/data ext4 defaults,errors=remount-ro 0 2"
+      line: "UUID={{ data_ssd_uuid }} /media/ssd01 ext4 defaults,errors=remount-ro 0 2"
     when: result.rc == 1 # UUID wasn't found
+
+  - name: Setup fstab - remount all the partitions from fstab
+    command:
+      cmd: "mount -a"
+    register: fstab_remount_out
+
+  - name: Setup fstab - output    
+    debug:  
+      var: fstab_remount_out
 
 ########################################################
 
-  - name: step 4 - install the necessary packages
+  - name: Dir structure - create dir structure on both data and os SSDs
+    file:
+      path: "{{ item }}"
+      state: directory
+    with_items:
+      - /home/daniel/apps/tools/dockers
+      - /media/ssd01/analiza
+      - /media/ssd01/de_scris
+      - /media/ssd01/downloads/torrents
+      - /media/ssd01/multimedia/music
+      - /media/ssd01/multimedia/movies
+
+########################################################
+
+  - name: Packages - install the necessary packages
     package:
       name:
         - vim
@@ -58,42 +85,42 @@
         - docker
       state: latest
     register: packages_output
-    when: ansible_distribution == "Archlinux"
+    when: 'ansible_distribution == linux_distribution'
 
-  - name: step 4 - output   
+  - name: Packages - output debug 
     debug:
       var: packages_output
 
 ########################################################
 
-  - name: step 5 - generate keys for ssh machine authentication
+  - name: SSH - generate keys for ssh machine authentication
     command: yes | ssh-keygen -t rsa -b 2048 -f ~/.ssh/authorized_keys -N ""
     register: generate_keys_output
     failed_when: generate_keys_output.rc != 0 and generate_keys_output.rc != 1
 
-  - name: step 5 - output   
+  - name: SSH - key generation output   
     debug:
       var: generate_keys_output
 
-  - name: step 6 - change permissions on the .ssh folder
+  - name: SSH - change permissions on the .ssh folder
     file:
       path: ~/.ssh
       state: directory
       mode: "0755"
 
-  - name: step 7 - disable Root SSH login on the machine
+  - name: SSH - disable Root SSH login on the machine
     lineinfile:
       path: "{{ ssh_config_path }}"
       regexp: '^#?PermitRootLogin'
       line: 'PermitRootLogin no'
 
-  - name: step 8 - change the default ssh port (22)
+  - name: SSH - change the default ssh port (22)
     lineinfile:
       path: "{{ ssh_config_path }}"
       regexp: '^#?Port'
       line: "Port {{ ssh_port }}"
 
-  - name: step 9 - enable public key authentication
+  - name: SSH - enable public key authentication
     lineinfile:
       path: "{{ ssh_config_path }}"
       regexp: "{{ item.regexp }}"
@@ -103,7 +130,7 @@
       - { regexp: '^AuthorizedKeysFile', line: 'AuthorizedKeysFile {{ key_file_path }}' }
       - { regexp: '^#PasswordAuthentication', line: 'PasswordAuthentication no' }
 
-  - name: step 10 - start and enable the SSH service
+  - name: SSH - start and enable the SSH service
     service:
       name: sshd
       state: started
@@ -112,25 +139,25 @@
 
 ########################################################
 
-  - name: step 11 - check if fail2ban has a jail.local file
+  - name: Fail2Ban - check if fail2ban has a jail.local file
     stat:
       path: /etc/fail2ban/jail.local
     register: fail2ban_jail_stat
 
-  - name: step 12 - create a jail.local for fail2ban
+  - name: Fail2Ban - create a jail.local for fail2ban
     file:
       path: /etc/fail2ban/jail.local
       state: touch
     when: not fail2ban_jail_stat.stat.exists
     register: fail2ban_jail_creation
 
-  - name: step 13 - add default config to jail.local
+  - name: Fail2Ban - add default config to jail.local
     template:
       src: jail.local.template
       dest: /etc/fail2ban/jail.local
     when: fail2ban_jail_creation is defined and fail2ban_jail_creation.changed == true
 
-  - name: step 14 - start and enable the fail2ban service
+  - name: Fail2Ban - start and enable the fail2ban service
     service:
       name: fail2ban
       state: started
@@ -139,7 +166,7 @@
 
 ########################################################
 
-  - name: step 15 - start and enable docker
+  - name: Docker - start and enable docker
     service:
       name: docker
       state: started
@@ -148,23 +175,23 @@
 
 ########################################################
 
-  - name: step 16 - pull jellyfin docker image
+  - name: Jellyfin - pull jellyfin docker image
     docker_image:
       name: jellyfin/jellyfin
       source: pull
       tag: latest
 
-  - name: step 17 - create config volume for jellyfin
+  - name: Jellyfin - create config volume for jellyfin
     docker_volume:
       name: jellyfin-config
       driver: local
 
-  - name: step 18 - create cache volume for jellyfin
+  - name: Jellyfin - create cache volume for jellyfin
     docker_volume:
       name: jellyfin-cache
       driver: local
 
-  - name: step 19 - start jellyfin docker container
+  - name: Jellyfin - start jellyfin docker container
     docker_container:
       name: jellyfin
       image: jellyfin/jellyfin
@@ -183,18 +210,18 @@
 
 ########################################################
 
-  - name: step 20 - pull qbittorrent docker image
+  - name: Qbittorrent - pull qbittorrent docker image
     docker_image:
       name: linuxserver/qbittorrent
       source: pull
       tag: latest
 
-  - name: step 21 - create config volume for qbittorrent
+  - name: Qbittorrent - create config volume for qbittorrent
     docker_volume:
       name: qbittorrent-config
       driver: local
 
-  - name: step 22 - start qbittorrent docker container
+  - name: Qbittorrent - start qbittorrent docker container
     docker_container:
       name: qbittorrent
       image: linuxserver/qbittorrent
@@ -218,13 +245,18 @@
 
 ########################################################
 
-  - name: step 23 - pull homer docker image
+  - name: Homer - pull homer docker image
     docker_image:
       name: b4bz/homer
       source: pull
       tag: latest
 
-  - name: step 24 - start homer docker container
+  - name: Homer - copy homer config
+    template:
+      src: homer.config.yml
+      dest: "{{ homer_dashboard_file_path }}/config.yml"
+
+  - name: Homer - start homer docker container
     docker_container:
       name: homer
       image: b4bz/homer
@@ -238,45 +270,58 @@
 
 ########################################################
 
-  - name: step 25 - download OpenVPN configurations from surfshark
+  - name: Surfshark vpn - download OpenVPN configurations from surfshark
     get_url:
       url: "https://my.surfshark.com/vpn/api/v1/server/configurations"
       dest: "/etc/openvpn/client"
 
-  - name: step 26 - create dir for surfshark configurations
+  - name: Surfshark vpn - create dir for surfshark configurations
     file:
       path: "/etc/openvpn/client/configurations"
       state: directory
 
-  - name: step 27 - unzip the surfshark configurations archive
+  - name: Surfshark vpn - unzip the surfshark configurations archive
     unarchive:
       src: "/etc/openvpn/client/Surfshark_Config.zip"
       dest: "/etc/openvpn/client/configurations"
 
-  - name: step 28 - create the login.conf file for surfshark
+  - name: Surfshark vpn - create the login.conf file for surfshark
     template:
       src: login.conf
       dest: /etc/openvpn/client/login.conf
 
-  - name: step 29 - get all surfshark configurations
+  - name: Surfshark vpn - get all surfshark configurations
     find:
       paths: "/etc/openvpn/client/configurations"
       recurse: yes
       patterns: '*'
     register: found_files
 
-  - name: step 30 - decorate surfshark configurations
+  - name: Surfshark vpn - decorate surfshark configurations
     lineinfile:
       path: "{{ item.path }}"
       regexp: '^auth-user-pass'
       line: "auth-user-pass /etc/openvpn/client/login.conf"
     with_items: "{{ found_files.files }}"
 
-  - name: step 31 - download vpn ignition script
+  - name: Surfshark vpn - download vpn ignition script
     get_url:
       url: "https://raw.githubusercontent.com/daniel-dumitrascu/vpn-ignition-script/main/surfshark-startvpn.py"
       dest: /usr/local/bin/surfshark-startvpn.py
     register: result
+
+  - name: Surfshark vpn - create openvpn service file
+    template:
+      src: openvpn.service
+      dest: /etc/systemd/system/openvpn.service
+
+  - name: Surfshark vpn - add executable line with parameters to openvpn.service
+    lineinfile:
+      path: /etc/systemd/system/openvpn.service
+      regexp: '^ExecStart'
+      line: "ExecStart=/usr/bin/python3 /usr/local/bin/surfshark-startvpn.py {{ system_password }} {{ vpn_configs_path }} {{ vpn_selected_config }}"
+    notify:
+      - enable_and_start_openvpn
 
 ########################################################
 
@@ -298,3 +343,10 @@
         name: docker
         enabled: yes
         state: started
+
+    - name: enable_and_start_openvpn
+      service:
+        name: openvpn
+        enabled: yes
+        state: started
+
