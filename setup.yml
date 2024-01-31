@@ -10,13 +10,8 @@
     ssh_port: "4555"
     user_id: 1000
     group_id: 1001
-    system_password: "password"
-    
+    system_password: "password"  
     key_file_path: "home/daniel/.ssh/authorized_keys.pub"
-    
-    #fstab_path: "/etc/fstab"
-    fstab_path: "dummy/dummy_fstab"
-
     ssh_config_path: "/etc/ssh/sshd_config"
     jellyfin_media_path: "/home/daniel/Desktop/jellyfin-media"
     qbittorrent_download_path: "/home/daniel/Desktop/torrents"
@@ -38,7 +33,7 @@
 
   - name: Setup fstab - check if the SSD UUID is already added to the fstab
     command:
-      cmd: "grep '{{ data_ssd_uuid }}' '{{ fstab_path }}'"
+      cmd: "grep '{{ data_ssd_uuid }}' /etc/fstab"
     register: result
     failed_when: result.rc != 0 and result.rc != 1
     check_mode: false
@@ -46,7 +41,7 @@
 
   - name: Setup fstab - add SSD UUID to fstab
     lineinfile:
-      path: "{{ fstab_path }}"
+      path: /etc/fstab
       line: "UUID={{ data_ssd_uuid }} /media/ssd01 ext4 defaults,errors=remount-ro 0 2"
     when: result.rc == 1 # UUID wasn't found
 
@@ -108,24 +103,14 @@
       state: directory
       mode: "0755"
 
-  - name: SSH - disable Root SSH login on the machine
-    lineinfile:
-      path: "{{ ssh_config_path }}"
-      regexp: '^#?PermitRootLogin'
-      line: 'PermitRootLogin no'
-
-  - name: SSH - change the default ssh port (22)
-    lineinfile:
-      path: "{{ ssh_config_path }}"
-      regexp: '^#?Port'
-      line: "Port {{ ssh_port }}"
-
-  - name: SSH - enable public key authentication
+  - name: SSH - disable root SSH login, change the default ssh port (22) and enable public key authentication
     lineinfile:
       path: "{{ ssh_config_path }}"
       regexp: "{{ item.regexp }}"
       line: "{{ item.line }}"
     with_items:
+      - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+      - { regexp: '^#?Port', line: 'Port {{ ssh_port }}' }
       - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
       - { regexp: '^AuthorizedKeysFile', line: 'AuthorizedKeysFile {{ key_file_path }}' }
       - { regexp: '^#PasswordAuthentication', line: 'PasswordAuthentication no' }
