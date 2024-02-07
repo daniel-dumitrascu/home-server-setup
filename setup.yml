@@ -6,16 +6,22 @@
   vars:
 
     linux_distribution: "Archlinux"
-    data_ssd_uuid: "a06b4802-68cf-4f3d-a2ca-18091fc87c0f"
+    data_ssd_uuid: "422c7d7f-3236-4de0-aa87-93c2e399c3db"
     ssh_port: "4555"
     user_id: 1000
     group_id: 1001
     system_password: "password"  
-    key_file_path: "home/daniel/.ssh/authorized_keys.pub"
-    ssh_config_path: "/etc/ssh/sshd_config"
-    jellyfin_media_path: "/home/daniel/Desktop/jellyfin-media"
-    qbittorrent_download_path: "/home/daniel/Desktop/torrents"
-    homer_dashboard_file_path: "/home/daniel/Desktop/homer"
+
+    home_root_path: "/home/daniel/"
+    data_root_path: "/mnt/usb/"
+
+    home_ssh_keys_path: ".ssh/authorized_keys.pub"
+    home_dockers_path: "apps/tools/dockers"
+    home_homer_dashboard_path: "apps/tools/homer"
+
+    data_jellyfin_media_path: "multimedia"
+    data_qbittorrent_download_path: "downloads/torrents"
+    
     vpn_configs_path: "/etc/openvpn/client/configurations"
     vpn_selected_config: "config"
 
@@ -42,7 +48,7 @@
   - name: Setup fstab - add SSD UUID to fstab
     lineinfile:
       path: /etc/fstab
-      line: "UUID={{ data_ssd_uuid }} /media/ssd01 ext4 defaults,errors=remount-ro 0 2"
+      line: "UUID={{ data_ssd_uuid }} {{ data_root_path }} ext4 defaults,errors=remount-ro 0 2"
     when: result.rc == 1 # UUID wasn't found
 
   - name: Setup fstab - remount all the partitions from fstab
@@ -61,12 +67,13 @@
       path: "{{ item }}"
       state: directory
     with_items:
-      - /home/daniel/apps/tools/dockers
-      - /media/ssd01/analiza
-      - /media/ssd01/de_scris
-      - /media/ssd01/downloads/torrents
-      - /media/ssd01/multimedia/music
-      - /media/ssd01/multimedia/movies
+      - "{{ home_root_path }}{{ home_dockers_path }}"
+      - "{{ home_root_path }}{{ home_homer_dashboard_path }}"
+      - "{{ data_root_path }}analiza"
+      - "{{ data_root_path }}de_scris"
+      - "{{ data_root_path }}{{ data_qbittorrent_download_path }}"
+      - "{{ data_root_path }}{{ data_jellyfin_media_path }}/music"
+      - "{{ data_root_path }}{{ data_jellyfin_media_path }}/movies"
 
 ########################################################
 
@@ -89,9 +96,12 @@
 ########################################################
 
   - name: SSH - generate keys for ssh machine authentication
-    command: yes | ssh-keygen -t rsa -b 2048 -f ~/.ssh/authorized_keys -N ""
+    openssh_keypair:
+      path: "{{ home_root_path }}.ssh/authorized_keys"
+      type: rsa
+      size: 2048
+      state: present
     register: generate_keys_output
-    failed_when: generate_keys_output.rc != 0 and generate_keys_output.rc != 1
 
   - name: SSH - key generation output   
     debug:
@@ -105,14 +115,14 @@
 
   - name: SSH - disable root SSH login, change the default ssh port (22) and enable public key authentication
     lineinfile:
-      path: "{{ ssh_config_path }}"
+      path: /etc/ssh/sshd_config
       regexp: "{{ item.regexp }}"
       line: "{{ item.line }}"
     with_items:
       - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
       - { regexp: '^#?Port', line: 'Port {{ ssh_port }}' }
       - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
-      - { regexp: '^AuthorizedKeysFile', line: 'AuthorizedKeysFile {{ key_file_path }}' }
+      - { regexp: '^AuthorizedKeysFile', line: 'AuthorizedKeysFile {{ home_root_path }}{{ home_ssh_keys_path }}' }
       - { regexp: '^#PasswordAuthentication', line: 'PasswordAuthentication no' }
 
   - name: SSH - start and enable the SSH service
@@ -154,9 +164,8 @@
   - name: Docker - start and enable docker
     service:
       name: docker
+      enabled: yes
       state: started
-    notify:
-      - enable_and_start_docker
 
 ########################################################
 
@@ -187,7 +196,7 @@
         - jellyfin-cache:/cache
       mounts:
         - type: bind
-          source: "{{ jellyfin_media_path }}"
+          source: "{{ data_root_path }}{{ data_jellyfin_media_path }}"
           target: /media
       user: "{{ user_id }}:{{ group_id }}"
       network_mode: host
@@ -226,7 +235,7 @@
         - "45666:45666"
       volumes:
         - qbittorrent-config:/config
-        - "{{ qbittorrent_download_path }}:/downloads"
+        - "{{ data_root_path }}{{ data_qbittorrent_download_path }}:/downloads"
 
 ########################################################
 
@@ -239,7 +248,7 @@
   - name: Homer - copy homer config
     template:
       src: homer.config.yml
-      dest: "{{ homer_dashboard_file_path }}/config.yml"
+      dest: "{{ home_root_path }}{{ home_homer_dashboard_path }}/config.yml"
 
   - name: Homer - start homer docker container
     docker_container:
@@ -251,7 +260,7 @@
       ports:
         - "8081:8080"
       volumes:
-        - "{{ homer_dashboard_file_path }}:/www/assets"
+        - "{{ home_root_path }}{{ home_homer_dashboard_path }}:/www/assets"
 
 ########################################################
 
@@ -320,12 +329,6 @@
     - name: enable_and_start_fail2ban
       service:
         name: fail2ban
-        enabled: yes
-        state: started
-
-    - name: enable_and_start_docker
-      service:
-        name: docker
         enabled: yes
         state: started
 
