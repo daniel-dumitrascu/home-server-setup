@@ -37,6 +37,13 @@
 
 ########################################################
 
+  - name: Create data root path
+    file:
+      path: "{{ data_root_path }}"
+      state: directory
+
+########################################################
+
   - name: Setup fstab - check if the SSD UUID is already added to the fstab
     command:
       cmd: "grep '{{ data_ssd_uuid }}' /etc/fstab"
@@ -69,6 +76,7 @@
     with_items:
       - "{{ home_root_path }}{{ home_dockers_path }}"
       - "{{ home_root_path }}{{ home_homer_dashboard_path }}"
+      - "{{ data_root_path }}"
       - "{{ data_root_path }}analiza"
       - "{{ data_root_path }}de_scris"
       - "{{ data_root_path }}{{ data_qbittorrent_download_path }}"
