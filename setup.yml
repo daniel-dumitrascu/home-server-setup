@@ -76,7 +76,6 @@
     with_items:
       - "{{ home_root_path }}{{ home_dockers_path }}"
       - "{{ home_root_path }}{{ home_homer_dashboard_path }}"
-      - "{{ data_root_path }}"
       - "{{ data_root_path }}analiza"
       - "{{ data_root_path }}de_scris"
       - "{{ data_root_path }}{{ data_qbittorrent_download_path }}"
